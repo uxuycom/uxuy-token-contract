@@ -37,4 +37,4 @@ jobs:
       - name: Coverage (src only)
         # coverage builds without the optimizer, so the frozen-address guard (which pins optimized bytecode) is skipped here
         # coverage builds without the optimizer, so the frozen-address guard (which pins optimized bytecode) is skipped here
-        run: forge coverage --report summary --no-match-coverage "(script|test)" --no-match-test test_FactoryAddressFrozen --no-match-test test_FactoryAddressFrozen
+        run: forge coverage --report summary --no-match-coverage "(script|test)" --no-match-test test_FactoryAddressFrozen
