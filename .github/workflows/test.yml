@@ -35,4 +35,5 @@ jobs:
         run: forge test -vvv
 
       - name: Coverage (src only)
-        run: forge coverage --report summary --no-match-coverage "(script|test)"
+        # coverage builds without the optimizer, so the frozen-address guard (which pins optimized bytecode) is skipped here
+        run: forge coverage --report summary --no-match-coverage "(script|test)" --no-match-test test_FactoryAddressFrozen
