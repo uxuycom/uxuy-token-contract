@@ -71,7 +71,7 @@ Mine and deploy:
 # factory address (same on all chains)
 forge script script/DeployFactory.s.sol --sig "expectedAddress()"
 # mine
-cd tools/vanity && go run . -factory <factory> -deployer <EOA> -prefix 00000000
+cd tools/vanity && go run . -factory <factory> -deployer <EOA> -prefix 0000 -suffix EEEE -checksum
 # check
 DEPLOYER=<EOA> SALT=<salt> forge script script/Predict.s.sol
 # deploy (Ethereum)
