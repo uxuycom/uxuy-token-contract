@@ -14,7 +14,7 @@ contract UXUY is ERC20, ERC20Burnable, ERC20Permit {
     error ZeroAddress();
 
     /// @param recipient Receives the entire supply.
-    constructor(address recipient) ERC20("UXUY", "UXUY") ERC20Permit("UXUY") {
+    constructor(address recipient) ERC20("UXUY Token", "UXUY") ERC20Permit("UXUY Token") {
         if (recipient == address(0)) revert ZeroAddress();
         _mint(recipient, TOTAL_SUPPLY);
     }

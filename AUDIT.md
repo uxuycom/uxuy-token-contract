@@ -29,7 +29,7 @@ UXUY token:
 1. Total supply is 1,000,000,000 × 10^18, minted once in the constructor to `recipient`. No code path can mint again.
 2. Supply only decreases, and only through `burn` / `burnFrom` by a holder or their approved spender.
 3. No owner, no roles, no pause, no blacklist, no transfer fee, no hooks, no external calls, no upgradeability.
-4. EIP-2612 `permit` with standard domain separator (name "UXUY", version "1").
+4. EIP-2612 `permit` with standard domain separator (name "UXUY Token", version "1").
 5. Runtime code contains no CALL, DELEGATECALL, CALLCODE, CREATE, CREATE2 or SELFDESTRUCT opcode.
 
 UXUYDeployer:

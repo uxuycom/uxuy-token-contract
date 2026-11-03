@@ -25,7 +25,7 @@ contract UXUYTest is Test {
     // ---------------------------------------------------------------- deployment
 
     function test_Metadata() public view {
-        assertEq(token.name(), "UXUY");
+        assertEq(token.name(), "UXUY Token");
         assertEq(token.symbol(), "UXUY");
         assertEq(token.decimals(), 18);
     }
