@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -65,8 +67,14 @@ func main() {
 	useChecksum := flag.Bool("checksum", false, "pattern must also match EIP-55 casing")
 	count := flag.Int("count", 1, "stop after this many matches")
 	threads := flag.Int("threads", runtime.NumCPU(), "worker goroutines")
+	explore := flag.Duration("explore", 0, "explore mode: run this long, collect every address scoring >= -minbits, print sorted")
+	minBits := flag.Int("minbits", 28, "explore mode: minimum rarity score in bits (28 ≈ 1 hit per 268M tries)")
 	flag.Parse()
-	if *factoryS == "" || *deployerS == "" || (*prefix == "" && *suffix == "") {
+	if *factoryS == "" || *deployerS == "" {
+		flag.Usage()
+		os.Exit(2)
+	}
+	if *explore == 0 && *prefix == "" && *suffix == "" {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -85,6 +93,16 @@ func main() {
 	var found int64
 	results := make(chan [2]string, 16)
 	start := time.Now()
+	exploring := *explore > 0
+	var mu sync.Mutex
+	var hits []hit
+	deadline := start.Add(*explore)
+	stop := func() bool {
+		if exploring {
+			return time.Now().After(deadline)
+		}
+		return atomic.LoadInt64(&found) >= int64(*count)
+	}
 
 	for w := 0; w < *threads; w++ {
 		go func() {
@@ -98,7 +116,7 @@ func main() {
 			c2Buf := make([]byte, 0, 85)
 			rlpBuf := make([]byte, 0, 23)
 			var ns, c2, out [32]byte
-			for atomic.LoadInt64(&found) < int64(*count) {
+			for !stop() {
 				ctr++
 				binary.LittleEndian.PutUint64(salt[24:], ctr)
 
@@ -127,6 +145,17 @@ func main() {
 					// progress handled by main loop
 				}
 				low := hex.EncodeToString(addr)
+				if exploring {
+					bits, why := score(low)
+					if bits >= *minBits {
+						cs := checksum(addr)
+						mu.Lock()
+						hits = append(hits, hit{bits, why, "0x" + cs, "0x" + hex.EncodeToString(salt)})
+						mu.Unlock()
+						fmt.Fprintf(os.Stderr, "hit %2d bits  0x%s  %s\n", bits, cs, why)
+					}
+					continue
+				}
 				if !strings.HasPrefix(low, pLow) || !strings.HasSuffix(low, sLow) {
 					continue
 				}
@@ -142,6 +171,23 @@ func main() {
 	}
 
 	tick := time.NewTicker(5 * time.Second)
+	if exploring {
+		for !stop() {
+			<-tick.C
+			t := atomic.LoadUint64(&tries)
+			el := time.Since(start).Seconds()
+			fmt.Fprintf(os.Stderr, "%.1fM tries, %.2fM/s, %d hits, %s left\n", float64(t)/1e6, float64(t)/1e6/el, len(hits), (deadline.Sub(time.Now())).Round(time.Second))
+		}
+		mu.Lock()
+		sort.Slice(hits, func(i, j int) bool { return hits[i].bits > hits[j].bits })
+		fmt.Printf("# %d hits in %.0fM tries over %s (factory %s, deployer %s)\n", len(hits), float64(atomic.LoadUint64(&tries))/1e6, explore, *factoryS, *deployerS)
+		fmt.Printf("bits\taddress\tpattern\tsalt\n")
+		for _, h := range hits {
+			fmt.Printf("%d\t%s\t%s\t%s\n", h.bits, h.addr, h.why, h.salt)
+		}
+		mu.Unlock()
+		return
+	}
 	got := 0
 	for got < *count {
 		select {
@@ -154,4 +200,76 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%.1fM tries, %.2fM/s\n", float64(t)/1e6, float64(t)/1e6/el)
 		}
 	}
+}
+
+type hit struct {
+	bits       int
+	why        string
+	addr, salt string
+}
+
+var words = []string{"eeee", "beef", "cafe", "face", "dead", "babe", "f00d", "c0de", "ace0", "0fee", "fade", "bead", "deaf", "feed", "0000", "1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888", "9999", "aaaa", "bbbb", "cccc", "dddd", "ffff"}
+
+func runLen(s string, from int, step int) int {
+	c := s[from]
+	n := 0
+	for i := from; i >= 0 && i < len(s) && s[i] == c; i += step {
+		n++
+	}
+	return n
+}
+
+// score returns an approximate rarity in bits (log2 of expected tries) and the pattern name.
+// Only patterns people actually read as "nice" are scored; everything else is 0.
+func score(a string) (int, string) {
+	best, why := 0, ""
+	lead := runLen(a, 0, 1)
+	trail := runLen(a, len(a)-1, -1)
+	// leading zeros
+	if a[0] == '0' && lead >= 6 {
+		if b := 4 * lead; b > best {
+			best, why = b, fmt.Sprintf("%d leading zeros", lead)
+		}
+	}
+	// leading run of a non-zero char
+	if a[0] != '0' && lead >= 6 {
+		if b := 4*lead - 4; b > best {
+			best, why = b, fmt.Sprintf("leading %dx%c", lead, a[0])
+		}
+	}
+	// trailing run
+	if trail >= 6 {
+		if b := 4*trail - 4; b > best {
+			best, why = b, fmt.Sprintf("trailing %dx%c", trail, a[len(a)-1])
+		}
+	}
+	// same char run at both ends (0x8888...8888)
+	if a[0] == a[len(a)-1] && lead >= 4 && trail >= 4 {
+		if b := 4*(lead+trail) - 4; b > best {
+			best, why = b, fmt.Sprintf("%dx%c ... %dx%c", lead, a[0], trail, a[0])
+		}
+	}
+	// 0000 prefix + trailing run
+	if strings.HasPrefix(a, "0000") && trail >= 4 && a[len(a)-1] != '0' {
+		if b := 16 + 4*trail - 4; b > best {
+			best, why = b, fmt.Sprintf("0000 ... %dx%c", trail, a[len(a)-1])
+		}
+	}
+	// 0000 prefix + word suffix
+	if strings.HasPrefix(a, "0000") {
+		for _, w := range words {
+			if strings.HasSuffix(a, w) {
+				if b := 16 + 16 - 5; b > best {
+					best, why = b, "0000 ... "+w
+				}
+			}
+		}
+	}
+	// zeros prefix + zeros suffix (0x0000...0000)
+	if lead >= 4 && trail >= 4 && a[0] == '0' && a[len(a)-1] == '0' {
+		if b := 4 * (lead + trail); b > best {
+			best, why = b, fmt.Sprintf("%d zeros ... %d zeros", lead, trail)
+		}
+	}
+	return best, why
 }

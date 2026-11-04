@@ -70,8 +70,10 @@ Mine and deploy:
 ```bash
 # factory address (same on all chains)
 forge script script/DeployFactory.s.sol --sig "expectedAddress()"
-# mine
-cd tools/vanity && go run . -factory <factory> -deployer <EOA> -prefix 0000 -suffix EEEE -checksum
+# explore: collect every address matching a known-nice pattern for 30 minutes, sorted by rarity
+cd tools/vanity && go run . -factory <factory> -deployer <EOA> -explore 30m -minbits 27 > candidates.tsv
+# or target one pattern
+go run . -factory <factory> -deployer <EOA> -prefix 0000 -suffix EEEE -checksum
 # check
 DEPLOYER=<EOA> SALT=<salt> forge script script/Predict.s.sol
 # deploy (Ethereum)
